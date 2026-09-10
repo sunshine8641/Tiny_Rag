@@ -1,0 +1,444 @@
+Metadata-Version: 2.4
+Name: tiny_rag
+Version: 0.1.0
+Summary: Personal knowledge base RAG tool
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+
+# Tiny_RAG
+
+> 个人知识库 RAG 工具 — 把书 / 笔记 / 文章向量化本地存储，用自然语言检索，跟 LLM 协作回答。
+
+## 特性
+
+- **本地优先**：所有数据 + embedding 都在本地
+- **隐私友好**：只有 query 和 top-5 chunk 发给 LLM
+- **Web UI**：Gradio 6.x，本地浏览器访问
+- **流式输出**：LLM 第一个 token 0.5-1s 显示（不等完整回答）
+- **多 LLM 后端**：OpenAI / Anthropic / Ollama / MiniMax / Mock
+- **多格式**：PDF / Markdown / TXT / DOCX（自动按 suffix 分发）
+- **结构保留**：PDF 表格、标题、列表都识别（pymupdf4llm）
+- **多语言**：bge-m3 中文 SOTA embedding
+- **增量同步**：基于 state.json + mtime/size 跳过未改文件
+- **可选 rerank**：bge-reranker-v2-m3 提精度（默认关闭）
+- **耗时统计**：每条 query 显示 retrieve / generate / total 时间
+
+## 快速开始
+
+### 1. 安装
+
+```bash
+git clone <repo>
+cd Tiny_RAG
+pip install -r requirements.txt
+pip install -e .   # 让 tiny_rag 可以 import
+```
+
+### 2. 配置 LLM（任选一个）
+
+```bash
+# 复制模板
+cp .env.example .env
+
+# 编辑 .env，设其中一个：
+OPENAI_API_KEY=sk-...
+# 或
+ANTHROPIC_API_KEY=sk-ant-...
+# 或装 Ollama + qwen2.5:7b（本地免费）
+brew install ollama
+ollama serve &
+ollama pull qwen2.5:7b
+```
+
+### 3. 入库
+
+```bash
+# 增量同步（推荐日常用，秒级跳过未改文件）
+python -m tiny_rag sync ~/books --recursive
+
+# 一次性入库（不检查状态，每次都重算）
+python -m tiny_rag ingest ~/books/my_book.pdf
+
+# 只入库特定格式
+python -m tiny_rag sync ~/notes --pattern "*.md" --pattern "*.txt"
+```
+
+支持格式：`.pdf` `.md` `.markdown` `.txt` `.docx`
+
+### 4. 查询
+
+```bash
+# CLI 模式
+python -m tiny_rag query "什么是 X" --backend mock
+python -m tiny_rag query "什么是 X" --backend ollama --model qwen2.5:7b
+python -m tiny_rag query "什么是 X" --backend openai --model gpt-4o-mini
+
+# 或启动 Web UI（推荐日常用）
+python -m tiny_rag web
+# → http://127.0.0.1:7860
+```
+
+**Web UI 三个 tab**：
+- 💬 **Chat** — 问问题，看答案 + 来源标注
+- 📥 **入库** — 拖文件入库（PDF / MD / TXT / DOCX）
+- 📊 **状态** — 看库状态、sources 列表
+
+### 5. 管理
+
+```bash
+python -m tiny_rag status      # 看库状态
+python -m tiny_rag remove <path>  # 删某个文件的所有 chunks
+```
+
+## 命令
+
+### `python -m tiny_rag ingest <path>`
+
+一次性入库（不检查状态，每次都重算）。
+
+```
+位置参数:
+  path              文件或目录
+
+选项:
+  --pattern PATTERN  glob 模式（默认 *.pdf）
+  --recursive        递归子目录
+```
+
+### `python -m tiny_rag sync <path>`
+
+增量同步（**推荐日常用**）—— 自动跳过没改的文件，重算改过的，清理删除的。
+
+```
+位置参数:
+  path              文件或目录
+
+选项:
+  --pattern PATTERN  glob 模式（可重复；默认 5 种格式都跑）
+  --recursive        递归子目录
+  --force            强制全量重算（忽略 state.json）
+```
+
+**示例**：
+```bash
+# 默认跑所有 5 种格式
+python -m tiny_rag sync ~/books --recursive
+
+# 只跑 PDF
+python -m tiny_rag sync ~/books --pattern "*.pdf"
+
+# 跑 PDF + Markdown
+python -m tiny_rag sync ~/notes --pattern "*.pdf" --pattern "*.md"
+
+# 强制全量重建
+python -m tiny_rag sync ~/books --force
+```
+
+**输出示例**：
+```
+Cleaning 1 deleted file(s)...
+Syncing: 100%|██████████| 3/3 [00:08<00:00,  2.74s/it]
+✓ Sync done: 1 ingested, 1 skipped, 0 removed, 0 noop
+```
+
+### `python -m tiny_rag query "<question>"`
+
+```
+位置参数:
+  query             问题（任意语言）
+
+选项:
+  --top-k N         检索 N 个 chunk（默认 5）
+  --backend BACKEND mock | openai | anthropic | ollama
+  --model MODEL     模型名（默认从 settings.llm_model 推断）
+```
+
+### `python -m tiny_rag status`
+
+显示总 chunk 数、数据目录、embedding 模型、LLM、所有 source 文件。
+
+### `python -m tiny_rag remove <file_path>`
+
+删除指定文件的所有 chunks（按 source path 匹配）。
+
+### `python -m tiny_rag web`
+
+启动 Gradio Web UI，本地浏览器访问。
+
+```
+选项:
+  --host HOST   绑定 IP（默认 127.0.0.1）
+  --port PORT   端口（默认 7860）
+  --share       创建公网 gradio.live URL
+```
+
+**三个 tab**：
+- 💬 **Chat** — 问问题，**流式**显示答案 + 来源标注 + 耗时统计
+- 📥 **入库** — 拖文件入库（支持 PDF/MD/TXT/DOCX）
+- 📊 **状态** — 看库状态、sources 列表
+
+**Chat 面板设置**：
+- Backend: mock / ollama / openai / anthropic / minimax
+- Model: 自定义（默认 qwen3:8b）
+- Top-K: 1-20 滑块
+- Rerank: checkbox（默认关）
+
+**Web UI 体验**：
+- **流式输出**：LLM 第一个 token 0.5-1s 就出现（不等完整回答）
+- **顶栏实时变化**：换 backend / model 后顶部状态栏立刻更新
+- **耗时统计**：每个回答末尾显示 `retrieve Xs / generate Ys / total Zs`
+- **光标提示**：生成中用 `▌` 闪烁光标表示「还在打字」
+
+## 项目结构
+
+```
+Tiny_RAG/
+├── README.md
+├── requirements.txt
+├── pyproject.toml
+├── .env.example
+│
+├── tiny_rag/
+│   ├── __init__.py
+│   ├── __main__.py              # python -m tiny_rag 入口
+│   ├── config.py                # 全局配置（pydantic settings）
+│   │
+│   ├── ingest/                  # 数据摄入
+│   │   ├── loaders.py           # PDF/MD/TXT/DOCX 解析
+│   │   ├── chunker.py           # bge-m3 tokenizer + 切分
+│   │   ├── embedder.py          # bge-m3 + L2 normalize
+│   │   ├── store.py             # Chroma 0.6.3 持久化
+│   │   ├── sync.py              # 增量同步（state.json）
+│   │   └── pipeline.py          # ingest_file / ingest_directory
+│   │
+│   ├── query/                   # 检索 + 生成
+│   │   ├── retriever.py         # bi-encoder + Chroma
+│   │   ├── reranker.py          # bge-reranker-v2-m3（可选）
+│   │   ├── context_builder.py   # 拼 prompt + 来源标注
+│   │   ├── generator.py         # 4 个 LLM backend
+│   │   └── pipeline.py          # 端到端 answer_query
+│   │
+│   ├── gui/
+│   │   └── app.py               # Gradio Web UI（3 tab）
+│   │
+│   └── cli/
+│       └── main.py              # argparse 6 个子命令
+```
+
+## 数据流
+
+### 摄入
+
+```
+PDF file
+  ↓ loaders.load_pdf()          [pymupdf4llm → Markdown]
+  ↓ chunker.chunk_pages()       [bge-m3 tokenizer, 512 tokens, overlap 100, normalize whitespace]
+  ↓ embedder.embed_chunks()     [bge-m3 → 1024-dim L2-normalized]
+  ↓ store.add_chunks()          [Chroma upsert]
+  ↓ data/chroma/                [持久化]
+```
+
+### 查询
+
+```
+user query
+  ↓ embedder.embed_query()      [bge-m3 → 1024-dim]
+  ↓ retriever.retrieve()        [Chroma cosine, top-K]
+  ↓ [reranker.rerank()]         [可选, 默认关闭]
+  ↓ context_builder.build()     [拼 prompt, 标 [1][2]...]
+  ↓ generator.generate_stream() [流式, OpenAI/Ollama/MiniMax/etc]
+  ↓ 第一 token 0.5-1s 显示, 持续 yield 到完整
+  ↓ answer + sources + timing
+```
+
+## 配置（`tiny_rag/config.py`）
+
+通过环境变量覆盖（`TINY_RAG_*` 前缀）或 `.env` 文件：
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `data_dir` | `./data` | 数据目录 |
+| `chroma_dir` | `./data/chroma` | Chroma 持久化目录 |
+| `embedding_model` | `BAAI/bge-m3` | Embedding 模型 |
+| `rerank_model` | `BAAI/bge-reranker-v2-m3` | Rerank 模型 |
+| `llm_model` | `qwen3:8b` | LLM 模型（env 可覆盖）|
+| `chunk_size` | 512 | Token 数（bge-m3 tokenizer）|
+| `chunk_overlap` | 100 | 重叠 tokens |
+| `top_k_retrieve` | 50 | 检索候选数 |
+| `top_k_rerank` | 5 | Rerank 后保留数 |
+| `device` | `auto` | `auto` / `cpu` / `mps` / `cuda` |
+
+**LLM API key**（用标准厂商命名，无需 `TINY_RAG_` 前缀）：
+
+| 字段 | `.env` 里的名字 |
+|---|---|
+| `openai_api_key` | `OPENAI_API_KEY` |
+| `anthropic_api_key` | `ANTHROPIC_API_KEY` |
+| `ollama_base_url` | `OLLAMA_BASE_URL` |
+| `minimax_api_key` | `MINIMAX_API_KEY` |
+| `minimax_base_url` | `MINIMAX_BASE_URL` |
+| `minimax_model` | `MINIMAX_MODEL` |
+
+## 模块细节
+
+### `loaders.py` — 多格式文件解析
+
+按 suffix 自动分发到对应 loader：
+
+| 格式 | Loader | 结构保留 |
+|---|---|---|
+| `.pdf` | pymupdf4llm | ✓ 标题/列表/表格/多栏 |
+| `.md` / `.markdown` | 直接读 + frontmatter 解析 | ✓ YAML title 提取 |
+| `.txt` | 直接读 | ✗（纯文本）|
+| `.docx` | python-docx | ✓ 标题转 `#`、表格转 Markdown |
+
+PDF 用 pymupdf4llm 转 Markdown，保留：
+- 标题（# ## ###）
+- 列表（- 1.）
+- 表格（Markdown 表格语法）
+- 多栏阅读顺序
+
+不识别公式语义、扫描版 PDF（需要 OCR）。
+
+### `chunker.py` — 切分
+
+- **Tokenizer**：bge-m3 的 AutoTokenizer（不是 tiktoken），保证 chunk 切出来精确 ≤ 512 bge-m3 tokens
+- **Splitter**：`RecursiveCharacterTextSplitter`，按 `\n\n` `。` `.` 优先级切分
+- **Normalize**：3+ 连续 `\n + 任意空白` → `\n\n`（清理 PDF 排版残留）
+- **过滤**：strip 后空白的 page / chunk 跳过
+- **不跨页**：每页独立切分，保留 page metadata
+
+### `embedder.py` — Embedding
+
+- **Model**：bge-m3（1024 维，多语言）
+- **L2 normalize**：cosine sim = dot product（检索更快）
+- **Device 默认 CPU**（M3 + MPS + bge-m3 有 NaN/OOM 问题）
+
+### `store.py` — 持久化
+
+- **Chroma 0.6.3** + `PersistentClient`
+- **Cosine distance**（bge-m3 向量已 L2 norm）
+- **where filter workaround**：Chroma 0.6.3 的 `query` API 跟 `get` API 对 where 处理不一致，先取 top-K*5 再 Python 端 filter
+
+### `sync.py` — 增量同步
+
+记录每个文件的状态（mtime + size + content_hash + chunk_count），下次 sync 时对比：
+
+- 文件 mtime/size 没变 → 跳过（秒级）
+- 变了 → 删旧 chunks + 重新入库
+- 目录里有但 state 没有 → 视为新增
+- state 有但目录里没有 → 清理 chunks + 从 state 删除
+
+State 文件：`data/state.json`
+
+```json
+{
+  "/abs/path/to/book.pdf": {
+    "mtime": 1704700000.0,
+    "size": 12345,
+    "content_hash": "abc123...",
+    "chunk_count": 42,
+    "ingested_at": "2024-01-15T10:30:00"
+  }
+}
+```
+
+**性能**：1000 本书第二次 sync 几秒（只读 state）。
+
+### `generator.py` — LLM 调用
+
+5 个 backend，统一 streaming + blocking 两种模式：
+
+| Backend | 需要什么 | Streaming |
+|---|---|---|
+| `mock` | 无（返回占位符）| 一整个返回 |
+| `ollama` | Ollama 服务 + 模型 | ✓ |
+| `openai` | `OPENAI_API_KEY` | ✓ |
+| `anthropic` | `ANTHROPIC_API_KEY` | ✓ |
+| `minimax` | `MINIMAX_API_KEY`（OpenAI 兼容）| ✓ |
+
+**两种调用模式**：
+- `generate(prompt)` → 阻塞，返回完整字符串
+- `generate_stream(prompt)` → 生成器，逐 chunk yield（Web UI 用这个）
+
+Backend 不传时，根据 model 名自动推断：
+- `gpt*` → openai
+- `claude*` → anthropic
+- `qwen*` / `llama*` / `mistral*` → ollama
+- `MiniMax*` / `abab*` → minimax
+
+**API key 设置**：`.env` 文件用标准厂商名（不用加 `TINY_RAG_` 前缀）：
+```bash
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+MINIMAX_API_KEY=eyJ...
+MINIMAX_MODEL=MiniMax-Text-01
+```
+
+## 已知问题
+
+- **Chroma 0.6.3 vs 0.6.2 / 1.x**：升级可能让 HNSW 索引失真。**升级必须清库重建**。
+- **bge-m3 + MPS**：M3 Mac 上跑 bge-m3 有 NaN/OOM 问题，默认强制 CPU。
+- **增量同步未实现**：文件改了/删了，需要手动 `ingest`（会重算 embedding）或 `remove`。
+- **仅 PDF loader**：Markdown / EPUB / URL loader 计划中。
+- **`use_rerank=False` 默认**：rerank 模型 568M，每次 ~10-20s CPU 推理。默认关闭，按需开。
+
+## Roadmap
+
+- [x] 增量同步（state.json + mtime/size）
+- [x] Markdown / TXT / DOCX loader
+- [x] Web UI（Gradio 6.x + 流式 chat + 耗时统计）
+- [x] MiniMax LLM backend（OpenAI 兼容）
+- [x] 流式输出（generate_stream + yield）
+- [ ] EPUB loader
+- [ ] URL loader（requests + readability）
+- [ ] bge-reranker 默认开 + batch 推理加速
+- [ ] console_script 入口（`tiny_rag` 直接当命令）
+- [ ] 桌面应用（Tauri）
+- [ ] 多模态（图片 OCR / 公式识别）
+
+## 调试技巧
+
+```bash
+# 看库里有什么
+python -m tiny_rag status
+
+# 用 mock 测流程（不调 API）
+python -m tiny_rag query "X" --backend mock
+
+# 看 prompt 长啥样（mock 模式会回显 prompt 头）
+python -m tiny_rag query "X" --backend mock 2>&1 | head -50
+
+# Python 里直接用
+from tiny_rag.query.pipeline import answer_query
+result = answer_query("X", backend="ollama", model="qwen3:8b")
+print(result["answer"])
+print(result["sources"])
+```
+
+## 性能参考（M3 Mac mini）
+
+| 操作 | 耗时 |
+|---|---|
+| 首次加载 bge-m3（CPU）| ~15s |
+| 后续加载（cache hit）| ~2s |
+| Embed 100 chunks | ~3s |
+| Chroma 检索 100 candidates | ~50ms |
+| bge-reranker 20 pairs | ~10-20s |
+| Ollama qwen3:8b 单次回答 | ~3-5s |
+| **流式首 token**（Ollama）| **~0.5-1s**（不等完整）|
+| 端到端 query（无 rerank）| ~5-10s |
+| 端到端 query（带 rerank）| ~30-50s |
+
+**瓶颈分布**（无 rerank 模式）：
+- retrieve（bge-m3 embed + Chroma 搜）：~25%
+- **generate（LLM 推理）：~70%**
+- 其他：~5%
+
+**调优建议**：
+- 想快：换 `qwen2.5:3b`（生成时间 -50%）
+- 想准：开 `use_rerank`（Top-1 acc +5-10 pt，代价是 +10-20s）
+
+## License
+
+Personal use.

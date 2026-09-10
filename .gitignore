@@ -1,0 +1,25 @@
+# Secrets
+.env
+
+# Data (large, regenerable)
+data/
+*.chroma
+chroma/
+
+# Cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Models
+models/
+*.bin
+*.safetensors
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store

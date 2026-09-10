@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tiny_rag"
+version = "0.1.0"
+description = "Personal knowledge base RAG tool"
+requires-python = ">=3.10"
+readme = "README.md"
+
+# Pull deps from requirements.txt to avoid duplication
+[tool.setuptools.dynamic]
+dependencies = {file = "requirements.txt"}
+
+[tool.setuptools]
+packages = ["tiny_rag"]
+
+# Console script entry point: `tiny_rag` command on PATH
+[project.scripts]
+tiny_rag = "tiny_rag.cli.main:main"

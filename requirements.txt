@@ -1,0 +1,34 @@
+# Tiny_RAG dependencies
+# Pin versions to avoid breakage like the transformers 5.x incident in RAG_base/
+
+# Core (install these first to avoid pip backtracking)
+pydantic>=2.0,<3.0
+pydantic-settings>=2.0,<3.0
+python-dotenv>=1.0
+tiktoken>=0.5
+tqdm>=4.66
+
+# Models (HuggingFace)
+sentence-transformers>=3.0,<4.0        # bi-encoder + cross-encoder
+transformers>=4.49,<5.0                 # bart, etc.
+torch>=2.0
+
+# Vector DB
+chromadb>=0.4,<1.0          # Pinned below 1.0 — 1.x has different sqlite schema,
+                             # collections created by 0.6.x can't be read by 1.x
+
+# Loaders
+pymupdf>=1.23                           # PDF
+python-docx>=1.0                         # DOCX
+ebooklib>=0.18                          # EPUB
+readability-lxml>=0.8                   # URL clean text
+requests>=2.31
+
+# Splitter
+langchain-text-splitters>=0.2
+
+# CLI / Display
+rich>=13.0
+
+# Web UI
+gradio>=6.0                             # Web UI for chat/ingest/status

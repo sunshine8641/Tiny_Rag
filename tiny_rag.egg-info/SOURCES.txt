@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+tiny_rag/__init__.py
+tiny_rag/__main__.py
+tiny_rag/config.py
+tiny_rag.egg-info/PKG-INFO
+tiny_rag.egg-info/SOURCES.txt
+tiny_rag.egg-info/dependency_links.txt
+tiny_rag.egg-info/entry_points.txt
+tiny_rag.egg-info/top_level.txt
